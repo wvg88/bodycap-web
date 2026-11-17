@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bodycap Web</title>
+  <meta name="description" content="Bestuur een 3D-skelet met je lichaam voor de webcam. Three.js en MediaPipe, zonder Blender.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Erica+One&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.min.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene" aria-label="3D-weergave van het skelet"></canvas>
+
+    <header class="topbar">
+      <h1>Bodycap <span>Web</span></h1>
+      <div id="status" class="status" data-state="idle" role="status">Camera uit</div>
+      <dl id="stats" class="stats" aria-label="Snelheid">
+        <div><dt>Beeld</dt><dd id="stat-render">–</dd></div>
+        <div><dt>Herkenning</dt><dd id="stat-track">–</dd></div>
+        <div><dt>Camera</dt><dd id="stat-camera">–</dd></div>
+      </dl>
+      <button id="panel-toggle" class="icon-button" type="button" aria-controls="panel" aria-expanded="true" title="Paneel tonen of verbergen">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+
+    <div id="camera" class="camera" data-size="small" hidden>
+      <div class="camera-view">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="camera-bar">
+        <span id="camera-label">Camera</span>
+        <button id="camera-size" class="text-button" type="button">Groter</button>
+      </div>
+    </div>
+
+    <div id="countdown" class="countdown" hidden aria-live="assertive"></div>
+    <div id="toast" class="toast" hidden role="status"></div>
+    <div id="dropzone" class="dropzone" hidden>Laat het .glb-bestand los om het te laden</div>
+
+    <aside id="panel" class="panel" aria-label="Instellingen">
+      <section class="start">
+        <button id="camera-start" class="primary" type="button">Start camera</button>
+        <p id="start-hint" class="hint">Ga zo staan dat je hele lichaam in beeld is, op 2,5 tot 3 meter van de camera.</p>
+      </section>
+
+      <details open>
+        <summary>Camera</summary>
+        <label class="field">Camera
+          <select id="camera-select"><option value="">Standaardcamera</option></select>
+        </label>
+        <label class="check"><input type="checkbox" id="show-camera" checked> Camerabeeld tonen</label>
+        <label class="check"><input type="checkbox" id="show-overlay" checked> Herkende punten over het beeld</label>
+        <label class="check"><input type="checkbox" id="show-face-mesh" checked> Gezichtsmesh over het beeld</label>
+        <button id="pause" class="secondary" type="button" disabled>Pauzeer herkenning</button>
+      </details>
+
+      <details open>
+        <summary>Besturing</summary>
+        <div class="row">
+          <button id="calibrate" class="secondary" type="button" disabled>Kalibreer</button>
+          <button id="clear-calibration" class="secondary" type="button">Wis kalibratie</button>
+        </div>
+        <p id="calibration-state" class="hint">Niet gekalibreerd. Sta recht en klik op Kalibreer; je krijgt 3 seconden om klaar te staan.</p>
+        <button id="rest-pose" class="secondary" type="button">Rustpose</button>
+      </details>
+
+      <details open>
+        <summary>Onderdelen</summary>
+        <div class="chips">
+          <label class="chip"><input type="checkbox" id="part-torso" checked><span>Romp</span></label>
+          <label class="chip"><input type="checkbox" id="part-head" checked><span>Hoofd</span></label>
+          <label class="chip"><input type="checkbox" id="part-arms" checked><span>Armen</span></label>
+          <label class="chip"><input type="checkbox" id="part-fingers" checked><span>Vingers</span></label>
+          <label class="chip"><input type="checkbox" id="part-legs" checked><span>Benen</span></label>
+          <label class="chip"><input type="checkbox" id="part-location"><span>Verplaatsing</span></label>
+          <label class="chip"><input type="checkbox" id="part-face" disabled><span>Gezicht</span></label>
+        </div>
+        <p id="face-hint" class="hint">Dit model heeft geen gezichtsvormen (shape keys).</p>
+        <label class="field" id="location-scale-field" hidden>Schaal verplaatsing <output id="location-scale-out">1,5</output>
+          <input type="range" id="location-scale" min="0" max="4" step="0.1" value="1.5">
+        </label>
+        <label class="check"><input type="checkbox" id="ik" checked> Inverse kinematics voor armen en benen</label>
+        <label class="check"><input type="checkbox" id="ground" checked> Voeten op de vloer houden</label>
+        <label class="check"><input type="checkbox" id="mirror"> Spiegelen</label>
+        <label class="field">Zichtbaarheid <output id="visibility-out">0,50</output>
+          <input type="range" id="visibility" min="0" max="1" step="0.05" value="0.5">
+        </label>
+        <p class="hint">Lichaamsdelen die de camera minder zeker ziet dan deze drempel, blijven staan.</p>
+      </details>
+
+      <details>
+        <summary>Herkenning</summary>
+        <label class="field">Smoothing <output id="smoothing-out">5</output>
+          <input type="range" id="smoothing" min="1" max="9" step="1" value="5">
+        </label>
+        <label class="field">Model
+          <select id="engine">
+            <option value="holistic">Holistic: lichaam, handen en gezicht (aanbevolen)</option>
+            <option value="pose">Losse modellen: lichaam en handen</option>
+          </select>
+        </label>
+        <label class="field">Nauwkeurigheid
+          <select id="quality">
+            <option value="lite">Licht (snelst)</option>
+            <option value="full" selected>Normaal</option>
+            <option value="heavy">Zwaar (nauwkeurigst)</option>
+          </select>
+        </label>
+        <label class="field">Rekenen op
+          <select id="delegate">
+            <option value="GPU" selected>Grafische kaart (GPU)</option>
+            <option value="CPU">Processor (CPU)</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="use-worker" checked> Herkenning in een aparte thread</label>
+        <p id="engine-info" class="hint"></p>
+      </details>
+
+      <details>
+        <summary>Opnemen</summary>
+        <div class="row">
+          <button id="record" class="secondary" type="button">Start opnemen</button>
+          <button id="play" class="secondary" type="button" disabled>Afspelen</button>
+        </div>
+        <button id="download" class="secondary" type="button" disabled>Download als .glb met animatie</button>
+        <p id="record-info" class="hint">Nog geen opname.</p>
+      </details>
+
+      <details>
+        <summary>Weergave</summary>
+        <label class="check"><input type="checkbox" id="shadows" checked> Schaduwen</label>
+        <label class="check"><input type="checkbox" id="show-bones"> Botten tonen</label>
+        <label class="check"><input type="checkbox" id="show-floor" checked> Vloer</label>
+        <label class="field">Beeldkwaliteit
+          <select id="render-quality">
+            <option value="auto" selected>Automatisch</option>
+            <option value="low">Laag</option>
+            <option value="medium">Normaal</option>
+            <option value="high">Hoog</option>
+          </select>
+        </label>
+        <button id="reset-view" class="secondary" type="button">Camerastandpunt herstellen</button>
+      </details>
+
+      <details>
+        <summary>Model</summary>
+        <p id="model-info" class="hint">Model laden…</p>
+        <ul id="model-warnings" class="warnings"></ul>
+        <label class="file-button secondary">Ander model laden (.glb)
+          <input type="file" id="model-file" accept=".glb,.gltf,model/gltf-binary">
+        </label>
+        <p class="hint">Je kunt een .glb-bestand ook op de pagina slepen.</p>
+        <details class="nested">
+          <summary>Botkoppeling</summary>
+          <p class="hint">Welk bot bij welk lichaamsdeel hoort. Wijzigen past de koppeling direct aan.</p>
+          <div id="mapping"></div>
+        </details>
+      </details>
+
+      <details>
+        <summary>Sneltoetsen</summary>
+        <dl class="keys">
+          <div><dt><kbd>C</kbd></dt><dd>Kalibreren</dd></div>
+          <div><dt><kbd>R</kbd></dt><dd>Rustpose</dd></div>
+          <div><dt><kbd>V</kbd></dt><dd>Camerabeeld tonen of verbergen</dd></div>
+          <div><dt><kbd>P</kbd></dt><dd>Herkende punten tonen of verbergen</dd></div>
+          <div><dt><kbd>M</kbd></dt><dd>Gezichtsmesh tonen of verbergen</dd></div>
+          <div><dt><kbd>I</kbd></dt><dd>Inverse kinematics aan of uit</dd></div>
+          <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Meer of minder smoothing</dd></div>
+          <div><dt><kbd>Spatie</kbd></dt><dd>Herkenning pauzeren</dd></div>
+        </dl>
+      </details>
+    </aside>
+  </div>
+
+  <noscript>Deze pagina heeft JavaScript nodig.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
