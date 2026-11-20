@@ -9,7 +9,7 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { Rig, ROLES, DEFAULT_SOLVER_SETTINGS, normName } from "./solver.js";
-import { Tracker } from "./tracker.js";
+import { Tracker, autoThreads } from "./tracker.js";
 import { Recorder } from "./recorder.js";
 
 const $ = (id) => document.getElementById(id);
@@ -20,13 +20,23 @@ const nl = (v, digits = 1) => v.toFixed(digits).replace(".", ",");
 // ---------------------------------------------------------------------------
 
 const STORE_KEY = "bodycap-web";
+// Verhoog dit getal als standaardwaarden veranderen; NEW_DEFAULTS geldt dan eenmalig ook
+// voor browsers die al instellingen hadden opgeslagen. De rest van hun keuzes blijft staan.
+const SETTINGS_VERSION = 2;
+const NEW_DEFAULTS = { showFaceMesh: false, mirror: true, showFloor: false, engine: "pose" };
 const settings = {
   ...DEFAULT_SOLVER_SETTINGS,
-  face: false, showCamera: true, showOverlay: true, showFaceMesh: true, cameraSize: "small", cameraId: "",
-  smoothing: 5, engine: "holistic", quality: "full", delegate: "GPU", useWorker: true,
-  shadows: true, showBones: false, showFloor: true, renderQuality: "auto",
+  face: false, showCamera: true, showOverlay: true, showFaceMesh: false, cameraSize: "small", cameraId: "",
+  smoothing: 5, engine: "pose", quality: "full", delegate: "GPU", useWorker: true, threads: "auto",
+  shadows: true, showBones: false, showFloor: false, renderQuality: "auto",
 };
-try { Object.assign(settings, JSON.parse(localStorage.getItem(STORE_KEY) || "{}")); } catch { /* geen opslag: standaardwaarden */ }
+try {
+  const stored = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+  Object.assign(settings, stored);
+  if (Object.keys(stored).length && (stored.version || 1) < SETTINGS_VERSION) Object.assign(settings, NEW_DEFAULTS);
+} catch { /* geen opslag: standaardwaarden */ }
+settings.version = SETTINGS_VERSION;
+settings.ik = true;                 // inverse kinematics staat altijd aan
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch { /* geen opslag beschikbaar */ }
 }
@@ -226,6 +236,32 @@ const overlayCtx = overlay.getContext("2d");
 // Het kader krijgt de verhouding van het echte camerabeeld, zodat de overlay precies past
 function syncVideoRatio() {
   if (video.videoWidth && video.videoHeight) $("camera").style.setProperty("--ar", (video.videoWidth / video.videoHeight).toFixed(4));
+  fitCamera();
+}
+
+/**
+ * Past het camerakader in de ruimte die echt vrij is: onder de bovenbalk, naast of boven het
+ * paneel. Klein = ongeveer een kwart van de breedte, groot = ruim de helft; altijd zo dat het
+ * hele kader (beeld + balk eronder) binnen het venster blijft, ook bij een staande camera.
+ */
+const CAMERA_SIZE = { small: { part: 0.26, min: 120, max: 420 }, large: { part: 0.55, min: 200, max: 900 } };
+function fitCamera() {
+  const box = $("camera");
+  if (box.hidden || box.dataset.visible === "false") return;
+  const stage = canvas.getBoundingClientRect();
+  if (!stage.width || !stage.height) return;
+  const clean = document.body.classList.contains("clean");
+  const margin = stage.width < 520 ? 10 : 16;
+  const topbar = document.querySelector(".topbar");
+  const top = clean ? 0 : Math.max(0, topbar.getBoundingClientRect().bottom - stage.top);
+  const bar = clean ? 0 : box.querySelector(".camera-bar").offsetHeight;
+  const ar = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 4 / 3;
+  const size = CAMERA_SIZE[settings.cameraSize] || CAMERA_SIZE.small;
+  const wanted = Math.min(size.max, Math.max(size.min, stage.width * size.part));
+  const fitW = stage.width - 2 * margin;
+  const fitH = (stage.height - top - 2 * margin - bar - 2) * ar;   // 2: rand van het kader
+  box.style.margin = `${margin}px`;
+  box.style.width = `${Math.max(48, Math.floor(Math.min(wanted, fitW, fitH)))}px`;
 }
 video.addEventListener("loadedmetadata", syncVideoRatio);
 video.addEventListener("resize", syncVideoRatio);
@@ -240,8 +276,9 @@ const tracker = new Tracker(video, {
     else if (state === "error") { setStatus("error", `Herkenning: ${detail}`); toast(`De herkenning geeft een fout: ${detail}`, "error"); }
   },
   fallback: () => {
-    toast("De aparte thread reageerde niet. De herkenning draait nu op de hoofdthread.");
+    toast("De aparte threads reageerden niet. De herkenning draait nu op de hoofdthread.");
     $("use-worker").checked = false;
+    $("threads").disabled = true;
   },
   stats: (s) => {
     $("stat-track").textContent = tracker.ready && tracker.cameraOn ? `${s.tracking.toFixed(0)} fps` : "–";
@@ -261,6 +298,7 @@ function solverSettings() {
 function engineConfig() {
   return {
     engine: settings.engine, quality: settings.quality, delegate: settings.delegate, useWorker: settings.useWorker,
+    threads: settings.threads,
     hands: settings.fingers,                       // geen vingers: het handmodel hoeft niet te draaien
     face: settings.face && faceMeshes.length > 0,
   };
@@ -388,6 +426,7 @@ async function toggleCamera() {
     const info = await tracker.startCamera(settings.cameraId);
     $("camera-label").textContent = info.label;
     $("camera").hidden = false;
+    fitCamera();
     updateCameraUI();
     button.textContent = "Stop camera";
     button.dataset.on = "true";
@@ -467,6 +506,21 @@ function updateCameraUI() {
   $("camera-size").textContent = settings.cameraSize === "large" ? "Kleiner" : "Groter";
   overlay.hidden = !settings.showOverlay && !settings.showFaceMesh;
   overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  fitCamera();
+}
+
+/**
+ * Presentatie: zolang Caps Lock aan staat, verdwijnen alle bediening, statistieken en
+ * tekst. Het camerabeeld blijft alleen als 'Camerabeeld tonen' aan staat (toets V).
+ * We volgen de stand van Caps Lock zelf (niet elke druk), zodat het lampje op het
+ * toetsenbord altijd klopt met wat je ziet, ook op een Mac.
+ */
+function syncCleanMode(e) {
+  if (typeof e.getModifierState !== "function") return;
+  const on = e.getModifierState("CapsLock");
+  if (on === document.body.classList.contains("clean")) return;
+  document.body.classList.toggle("clean", on);
+  fitCamera();
 }
 
 function updateCalibrationUI() {
@@ -479,8 +533,18 @@ function updateEngineInfo() {
   if (!tracker.ready) { $("engine-info").textContent = ""; return; }
   const s = tracker.stats;
   const where = s.delegate === "CPU" ? "de processor" : "de grafische kaart";
-  $("engine-info").textContent = `Draait op ${where}, in ${s.mode === "aparte thread" ? "een aparte thread" : "de hoofdthread"}. `
-    + `Eén beeld herkennen kost ongeveer ${Math.max(1, s.ms).toFixed(0)} ms.`;
+  let threads = "in de hoofdthread";
+  if (s.mode === "aparte thread") {
+    threads = s.threads === 1 ? "in 1 aparte thread" : `in ${s.threads} aparte threads`;
+    if (s.wantedThreads > s.threads) threads += ` (${s.wantedThreads - s.threads} nog aan het opstarten)`;
+  }
+  $("engine-info").textContent = `Draait op ${where}, ${threads}. Eén beeld herkennen kost ongeveer ${Math.max(1, s.ms).toFixed(0)} ms.`;
+}
+
+/** Laat bij 'Automatisch' zien hoeveel threads dat op deze computer wordt. */
+function updateThreadsLabel() {
+  const auto = $("threads").querySelector('option[value="auto"]');
+  auto.textContent = `Automatisch (${autoThreads(settings.delegate)})`;
 }
 
 function updateModelUI(label) {
@@ -589,7 +653,6 @@ function setupUI() {
   $("location-scale-field").hidden = !settings.location;
   bindCheck("part-face", "face", applyEngineConfig);
   bindRange("location-scale", "locationScale", (v) => nl(v));
-  bindCheck("ik", "ik");
   bindCheck("ground", "ground");
   bindCheck("mirror", "mirror");
   bindRange("visibility", "visibility", (v) => nl(v, 2));
@@ -600,7 +663,11 @@ function setupUI() {
   $("quality").disabled = settings.engine === "holistic";
   bindSelect("quality", "quality", applyEngineConfig);
   bindSelect("delegate", "delegate", applyEngineConfig);
-  bindCheck("use-worker", "useWorker", applyEngineConfig);
+  bindCheck("use-worker", "useWorker", () => { $("threads").disabled = !settings.useWorker; applyEngineConfig(); });
+  bindSelect("threads", "threads", applyEngineConfig);
+  $("threads").disabled = !settings.useWorker;
+  updateThreadsLabel();
+  $("delegate").addEventListener("change", updateThreadsLabel);
 
   $("record").addEventListener("click", () => {
     if (recorder.recording) recorder.stop();
@@ -658,7 +725,15 @@ function setupUI() {
     if (f) { e.preventDefault(); loadFile(f); }
   });
 
+  addEventListener("keyup", syncCleanMode);
+  addEventListener("pointerdown", syncCleanMode);
+  addEventListener("pointermove", syncCleanMode, { passive: true });
+  addEventListener("resize", fitCamera);
+  new ResizeObserver(() => fitCamera()).observe(canvas);
+  new ResizeObserver(() => fitCamera()).observe(document.querySelector(".topbar"));
+
   addEventListener("keydown", (e) => {
+    syncCleanMode(e);
     if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|SELECT|TEXTAREA|BUTTON|SUMMARY)$/.test(e.target.tagName)) return;
     const k = e.key.toLowerCase();
     if (k === "c") startCalibration();
@@ -666,7 +741,6 @@ function setupUI() {
     else if (k === "v") { $("show-camera").click(); }
     else if (k === "p") { $("show-overlay").click(); }
     else if (k === "m") { $("show-face-mesh").click(); }
-    else if (k === "i") { $("ik").click(); toast(`Inverse kinematics ${$("ik").checked ? "aan" : "uit"}`); }
     else if (k === " ") { e.preventDefault(); togglePause(); }
     else if (k === "+" || k === "=" || k === "-" || k === "_") {
       const el = $("smoothing");

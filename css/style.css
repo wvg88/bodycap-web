@@ -20,7 +20,7 @@
   --scene-grid: #3a4657;
   --shadow: 0 10px 30px rgb(0 0 0 / 0.35);
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-display: "Manufacturing Consent", "Inter", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
   --panel-width: 328px;
   --radius: 10px;
   color-scheme: dark;
@@ -64,6 +64,10 @@ body {
   inset: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  /* Vaste rijhoogte: anders kan een hoog camerakader de rij (en het 3D-vlak) oprekken tot
+     voorbij de onderkant van het venster. */
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
 
 #scene {
@@ -324,19 +328,17 @@ kbd {
   justify-self: start;
   z-index: 3;
   margin: 16px;
-  /* --ar is de verhouding van het echte camerabeeld (breedte / hoogte); app.js zet hem.
-     Zo liggen de herkende punten precies op het beeld, ook bij 16:9 of een staand beeld. */
+  /* --ar is de verhouding van het echte camerabeeld (breedte / hoogte). De breedte rekent
+     app.js uit (fitCamera) uit de ruimte die echt vrij is, bij elke verandering van het venster. */
   --ar: 1.3333;
-  width: min(232px, calc(46vh * var(--ar)));
-  max-width: calc(100% - 32px);
+  width: 232px;
+  max-width: calc(100% - 20px);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
-
-.camera[data-size="large"] { width: min(520px, calc(62vh * var(--ar)), calc(100% - 32px)); }
 
 /* Verborgen, maar de video blijft doorlopen voor de herkenning */
 .camera[data-visible="false"] { position: absolute; width: 2px; height: 2px; margin: 0; opacity: 0; pointer-events: none; border: 0; }
@@ -410,6 +412,17 @@ kbd {
 
 [hidden] { display: none !important; }
 
+/* ---------- presentatie (Caps Lock): alleen het skelet en eventueel het camerabeeld ---------- */
+
+body.clean .topbar,
+body.clean .panel,
+body.clean .camera-bar,
+body.clean .toast,
+body.clean .countdown,
+body.clean .dropzone { display: none !important; }
+body.clean #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); cursor: none; }
+body.clean .camera { border: 0; box-shadow: none; }
+
 /* ---------- smal scherm: paneel als lade onderaan ---------- */
 
 @media (max-width: 760px) {
@@ -423,8 +436,6 @@ kbd {
     border-left: 0;
     border-top: 1px solid var(--line);
   }
-  .camera { width: min(132px, calc(30vh * var(--ar))); margin: 10px; }
-  .camera[data-size="large"] { width: min(260px, calc(46vh * var(--ar)), calc(100% - 20px)); }
   .stats { gap: 10px; }
   .stats dt { display: none; }
   .topbar { padding: 10px 12px; }

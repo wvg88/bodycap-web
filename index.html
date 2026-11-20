@@ -7,7 +7,7 @@
   <meta name="description" content="Bestuur een 3D-skelet met je lichaam voor de webcam. Three.js en MediaPipe, zonder Blender.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Erica+One&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">
     {
@@ -63,7 +63,7 @@
         </label>
         <label class="check"><input type="checkbox" id="show-camera" checked> Camerabeeld tonen</label>
         <label class="check"><input type="checkbox" id="show-overlay" checked> Herkende punten over het beeld</label>
-        <label class="check"><input type="checkbox" id="show-face-mesh" checked> Gezichtsmesh over het beeld</label>
+        <label class="check"><input type="checkbox" id="show-face-mesh"> Gezichtsmesh over het beeld</label>
         <button id="pause" class="secondary" type="button" disabled>Pauzeer herkenning</button>
       </details>
 
@@ -92,9 +92,8 @@
         <label class="field" id="location-scale-field" hidden>Schaal verplaatsing <output id="location-scale-out">1,5</output>
           <input type="range" id="location-scale" min="0" max="4" step="0.1" value="1.5">
         </label>
-        <label class="check"><input type="checkbox" id="ik" checked> Inverse kinematics voor armen en benen</label>
         <label class="check"><input type="checkbox" id="ground" checked> Voeten op de vloer houden</label>
-        <label class="check"><input type="checkbox" id="mirror"> Spiegelen</label>
+        <label class="check"><input type="checkbox" id="mirror" checked> Spiegelen</label>
         <label class="field">Zichtbaarheid <output id="visibility-out">0,50</output>
           <input type="range" id="visibility" min="0" max="1" step="0.05" value="0.5">
         </label>
@@ -108,8 +107,8 @@
         </label>
         <label class="field">Model
           <select id="engine">
-            <option value="holistic">Holistic: lichaam, handen en gezicht (aanbevolen)</option>
-            <option value="pose">Losse modellen: lichaam en handen</option>
+            <option value="pose" selected>Losse modellen: lichaam en handen (snelst)</option>
+            <option value="holistic">Holistic: lichaam, handen en gezicht</option>
           </select>
         </label>
         <label class="field">Nauwkeurigheid
@@ -125,7 +124,18 @@
             <option value="CPU">Processor (CPU)</option>
           </select>
         </label>
-        <label class="check"><input type="checkbox" id="use-worker" checked> Herkenning in een aparte thread</label>
+        <label class="check"><input type="checkbox" id="use-worker" checked> Herkenning in aparte threads</label>
+        <label class="field">Aantal threads
+          <select id="threads">
+            <option value="auto" selected>Automatisch</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="6">6</option>
+          </select>
+        </label>
+        <p class="hint">Meer threads geven meer herkenningen per seconde, vooral bij Rekenen op Processor: elke thread gebruikt een eigen rekenkern. Elke thread kost wel zo'n 150 MB geheugen.</p>
         <p id="engine-info" class="hint"></p>
       </details>
 
@@ -143,7 +153,7 @@
         <summary>Weergave</summary>
         <label class="check"><input type="checkbox" id="shadows" checked> Schaduwen</label>
         <label class="check"><input type="checkbox" id="show-bones"> Botten tonen</label>
-        <label class="check"><input type="checkbox" id="show-floor" checked> Vloer</label>
+        <label class="check"><input type="checkbox" id="show-floor"> Vloer</label>
         <label class="field">Beeldkwaliteit
           <select id="render-quality">
             <option value="auto" selected>Automatisch</option>
@@ -173,12 +183,12 @@
       <details>
         <summary>Sneltoetsen</summary>
         <dl class="keys">
+          <div><dt><kbd>Caps Lock</kbd></dt><dd>Presentatie: alle bediening en tekst uit beeld (Caps Lock aan)</dd></div>
           <div><dt><kbd>C</kbd></dt><dd>Kalibreren</dd></div>
           <div><dt><kbd>R</kbd></dt><dd>Rustpose</dd></div>
           <div><dt><kbd>V</kbd></dt><dd>Camerabeeld tonen of verbergen</dd></div>
           <div><dt><kbd>P</kbd></dt><dd>Herkende punten tonen of verbergen</dd></div>
           <div><dt><kbd>M</kbd></dt><dd>Gezichtsmesh tonen of verbergen</dd></div>
-          <div><dt><kbd>I</kbd></dt><dd>Inverse kinematics aan of uit</dd></div>
           <div><dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Meer of minder smoothing</dd></div>
           <div><dt><kbd>Spatie</kbd></dt><dd>Herkenning pauzeren</dd></div>
         </dl>

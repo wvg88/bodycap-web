@@ -275,7 +275,7 @@ export function twoBoneIK(target, pole, lenUpper, lenLower) {
 
 export const DEFAULT_SOLVER_SETTINGS = {
   torso: true, head: true, arms: true, fingers: true, legs: true,
-  location: false, locationScale: 1.5, ground: true, ik: true, mirror: false, visibility: 0.5,
+  location: false, locationScale: 1.5, ground: true, ik: true, mirror: true, visibility: 0.5,
 };
 
 export class Rig {
